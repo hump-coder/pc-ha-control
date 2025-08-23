@@ -2,29 +2,51 @@ using NAudio.CoreAudioApi;
 
 namespace PCVolumeMqtt;
 
+public record DeviceInfo(string Id, string Name);
+
+public record VolumeChangedEventArgs(string DeviceId, float Volume);
+
 public class VolumeService : IDisposable
 {
-    private readonly MMDevice _device;
+    private readonly MMDeviceEnumerator _enumerator;
+    private readonly Dictionary<string, MMDevice> _devices = new();
 
-    public event EventHandler<float>? VolumeChanged;
+    public event EventHandler<VolumeChangedEventArgs>? VolumeChanged;
 
     public VolumeService()
     {
-        var enumerator = new MMDeviceEnumerator();
-        _device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-        _device.AudioEndpointVolume.OnVolumeNotification += data =>
+        _enumerator = new MMDeviceEnumerator();
+        foreach (var device in _enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
         {
-            VolumeChanged?.Invoke(this, data.MasterVolume * 100f);
-        };
+            _devices[device.ID] = device;
+            device.AudioEndpointVolume.OnVolumeNotification += data =>
+            {
+                VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(device.ID, data.MasterVolume * 100f));
+            };
+        }
     }
 
-    public float GetVolume() => _device.AudioEndpointVolume.MasterVolumeLevelScalar * 100f;
+    public IEnumerable<DeviceInfo> GetDevices() => _devices.Values.Select(d => new DeviceInfo(d.ID, d.FriendlyName));
 
-    public void SetVolume(float volume)
+    public float GetVolume(string id) => _devices[id].AudioEndpointVolume.MasterVolumeLevelScalar * 100f;
+
+    public void SetVolume(string id, float volume)
     {
+        if (!_devices.TryGetValue(id, out var device))
+        {
+            return;
+        }
+
         var v = Math.Clamp(volume, 0f, 100f) / 100f;
-        _device.AudioEndpointVolume.MasterVolumeLevelScalar = v;
+        device.AudioEndpointVolume.MasterVolumeLevelScalar = v;
     }
 
-    public void Dispose() => _device.Dispose();
+    public void Dispose()
+    {
+        foreach (var device in _devices.Values)
+        {
+            device.Dispose();
+        }
+        _enumerator.Dispose();
+    }
 }
