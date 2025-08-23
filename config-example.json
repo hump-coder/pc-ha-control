@@ -1,0 +1,9 @@
+{
+  "machineName": "",
+  "mqtt": {
+    "host": "mqtt.local",
+    "port": 1883,
+    "username": "user",
+    "password": "pass"
+  }
+}
