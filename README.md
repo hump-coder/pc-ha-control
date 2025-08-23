@@ -1,6 +1,6 @@
 # pc-ha-control
 
-Utility to expose Windows PC volume to Home Assistant via MQTT.
+Utility to expose Windows PC sound device volumes to Home Assistant via MQTT.
 
 ## Setup
 
@@ -19,6 +19,6 @@ Utility to expose Windows PC volume to Home Assistant via MQTT.
    future runs. The app registers itself to start on login and runs in the
    system tray; right‑click the tray icon to exit.
 
-Home Assistant will automatically discover the device through MQTT discovery
-and expose a numeric entity to view or change the PC volume.
+Home Assistant will automatically discover each active sound device through MQTT
+discovery and expose a numeric entity to view or change that device's volume.
 

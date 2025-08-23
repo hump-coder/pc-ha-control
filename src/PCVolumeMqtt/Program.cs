@@ -55,57 +55,75 @@ internal static class Program
         await mqttClient.ConnectAsync(options);
 
         var baseTopic = $"pc/{config.MachineName}/volume";
-        var stateTopic = $"{baseTopic}/state";
-        var commandTopic = $"{baseTopic}/set";
-
-        var discoveryTopic = $"homeassistant/number/{config.MachineName}_volume/config";
-        var discoveryPayload = JsonSerializer.Serialize(new
-        {
-            name = $"{config.MachineName} Volume",
-            command_topic = commandTopic,
-            state_topic = stateTopic,
-            min = 0,
-            max = 100,
-            unique_id = $"{config.MachineName}_volume",
-            device = new { identifiers = new[] { config.MachineName }, name = config.MachineName }
-        });
-        var discoveryMessage = new MqttApplicationMessageBuilder()
-            .WithTopic(discoveryTopic)
-            .WithPayload(discoveryPayload)
-            .WithRetainFlag(true)
-            .Build();
-        await mqttClient.PublishAsync(discoveryMessage);
 
         using var volume = new VolumeService();
 
-        async Task PublishState(float v)
+        var commandTopics = new Dictionary<string, string>(); // topic -> deviceId
+        var stateTopics = new Dictionary<string, string>();   // deviceId -> topic
+
+        async Task PublishState(string deviceId, float v)
         {
+            if (!stateTopics.TryGetValue(deviceId, out var topic))
+            {
+                return;
+            }
+
             var msg = new MqttApplicationMessageBuilder()
-                .WithTopic(stateTopic)
+                .WithTopic(topic)
                 .WithPayload(((int)v).ToString())
                 .WithRetainFlag(true)
                 .Build();
             await mqttClient.PublishAsync(msg);
         }
 
+        foreach (var device in volume.GetDevices())
+        {
+            var slug = Slugify(device.Name);
+            var deviceBase = $"{baseTopic}/{slug}";
+            var stateTopic = $"{deviceBase}/state";
+            var commandTopic = $"{deviceBase}/set";
+
+            stateTopics[device.Id] = stateTopic;
+            commandTopics[commandTopic] = device.Id;
+
+            var discoveryTopic = $"homeassistant/number/{config.MachineName}_{slug}/config";
+            var discoveryPayload = JsonSerializer.Serialize(new
+            {
+                name = $"{device.Name} Volume",
+                command_topic = commandTopic,
+                state_topic = stateTopic,
+                min = 0,
+                max = 100,
+                unique_id = $"{config.MachineName}_{slug}_volume",
+                device = new { identifiers = new[] { config.MachineName }, name = config.MachineName }
+            });
+            var discoveryMessage = new MqttApplicationMessageBuilder()
+                .WithTopic(discoveryTopic)
+                .WithPayload(discoveryPayload)
+                .WithRetainFlag(true)
+                .Build();
+            await mqttClient.PublishAsync(discoveryMessage);
+
+            await mqttClient.SubscribeAsync(commandTopic);
+
+            await PublishState(device.Id, volume.GetVolume(device.Id));
+        }
+
         mqttClient.ApplicationMessageReceivedAsync += e =>
         {
-            if (e.ApplicationMessage.Topic == commandTopic)
+            if (commandTopics.TryGetValue(e.ApplicationMessage.Topic, out var id))
             {
                 var payload = Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
                 if (float.TryParse(payload, out var vol))
                 {
-                    volume.SetVolume(vol);
+                    volume.SetVolume(id, vol);
                 }
             }
 
             return Task.CompletedTask;
         };
 
-        await mqttClient.SubscribeAsync(commandTopic);
-
-        volume.VolumeChanged += async (_, v) => await PublishState(v);
-        await PublishState(volume.GetVolume());
+        volume.VolumeChanged += async (_, args) => await PublishState(args.DeviceId, args.Volume);
 
         using var icon = new NotifyIcon
         {
@@ -170,6 +188,24 @@ internal static class Program
     {
         using var key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
         key?.SetValue("PCVolumeMqtt", Application.ExecutablePath);
+    }
+
+    private static string Slugify(string value)
+    {
+        var sb = new StringBuilder();
+        foreach (var c in value.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                sb.Append(c);
+            }
+            else if (char.IsWhiteSpace(c) || c == '-' || c == '_')
+            {
+                sb.Append('_');
+            }
+        }
+
+        return sb.ToString();
     }
 }
 
