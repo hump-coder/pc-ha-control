@@ -13,9 +13,11 @@ Utility to expose Windows PC volume to Home Assistant via MQTT.
    The resulting `PCVolumeMqtt.exe` will be in
    `src/PCVolumeMqtt/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/`.
 
-2. Copy the executable to the target PC and run it. On first launch it will ask
-   for your MQTT host, port, username, password, and a machine name. These
-   values are stored in `config.json` alongside the executable for future runs.
+2. Copy the executable to the target PC and run it. On first launch it displays
+   dialogs to collect your MQTT host, port, username, password, and a machine
+   name. These values are stored in `config.json` alongside the executable for
+   future runs. The app registers itself to start on login and runs in the
+   system tray; right‑click the tray icon to exit.
 
 Home Assistant will automatically discover the device through MQTT discovery
 and expose a numeric entity to view or change the PC volume.
