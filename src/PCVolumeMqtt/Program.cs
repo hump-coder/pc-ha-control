@@ -132,6 +132,13 @@ internal static class Program
             Text = "PC Volume MQTT",
             ContextMenuStrip = new ContextMenuStrip()
         };
+        icon.ContextMenuStrip.Items.Add("Settings...", null, (_, _) =>
+        {
+            PromptForConfig(config);
+            SaveConfig(config, configPath);
+            Application.Restart();
+            Application.Exit();
+        });
         icon.ContextMenuStrip.Items.Add("Exit", null, (_, _) => Application.Exit());
 
         Application.ApplicationExit += (_, _) =>

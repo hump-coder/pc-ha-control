@@ -17,7 +17,9 @@ Utility to expose Windows PC sound device volumes to Home Assistant via MQTT.
    dialogs to collect your MQTT host, port, username, password, and a machine
    name. These values are stored in `config.json` alongside the executable for
    future runs. The app registers itself to start on login and runs in the
-   system tray; right‑click the tray icon to exit.
+   system tray; right‑click the tray icon to open settings or exit. The
+   settings dialog can be used later to change MQTT details or rename the
+   machine.
 
 Home Assistant will automatically discover each active sound device through MQTT
 discovery and expose a numeric entity to view or change that device's volume.
