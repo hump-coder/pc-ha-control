@@ -4,15 +4,18 @@ Utility to expose Windows PC volume to Home Assistant via MQTT.
 
 ## Setup
 
-1. Copy `config-example.json` to `config.json` and edit it with your MQTT
-   broker details.
-2. Build the project:
+1. Publish a single-file executable for Windows:
 
    ```sh
-   dotnet build
+   dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -p:IncludeNativeLibrariesForSelfExtract=true
    ```
-3. Run the application. On first start it will ask for a machine name, which is
-   used to create unique MQTT topics.
+
+   The resulting `PCVolumeMqtt.exe` will be in
+   `src/PCVolumeMqtt/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/`.
+
+2. Copy the executable to the target PC and run it. On first launch it will ask
+   for your MQTT host, port, username, password, and a machine name. These
+   values are stored in `config.json` alongside the executable for future runs.
 
 Home Assistant will automatically discover the device through MQTT discovery
 and expose a numeric entity to view or change the PC volume.
