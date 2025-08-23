@@ -119,7 +119,8 @@ internal static class Program
         Application.ApplicationExit += (_, _) =>
         {
             icon.Visible = false;
-            mqttClient.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            mqttClient.DisconnectAsync().GetAwaiter().GetResult();
+            mqttClient.Dispose();
         };
 
         Application.Run();
