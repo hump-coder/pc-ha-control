@@ -1,161 +1,174 @@
 using System.Text;
 using System.Text.Json;
+using System.Windows.Forms;
 using MQTTnet;
 using MQTTnet.Client;
+using Microsoft.Win32;
 using PCVolumeMqtt;
 
-var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
-AppConfig config;
-if (!File.Exists(configPath))
+internal static class Program
 {
-    config = new AppConfig();
-
-    Console.Write("Enter MQTT host: ");
-    config.Mqtt.Host = Console.ReadLine() ?? "localhost";
-
-    Console.Write("Enter MQTT port (default 1883): ");
-    var portInput = Console.ReadLine();
-    if (int.TryParse(portInput, out var port))
+    [STAThread]
+    private static async Task Main()
     {
-        config.Mqtt.Port = port;
-    }
+        ApplicationConfiguration.Initialize();
 
-    Console.Write("Enter MQTT username: ");
-    config.Mqtt.Username = Console.ReadLine() ?? string.Empty;
-
-    Console.Write("Enter MQTT password: ");
-    config.Mqtt.Password = ReadPassword();
-
-    Console.Write("Enter machine name: ");
-    config.MachineName = Console.ReadLine() ?? string.Empty;
-
-    SaveConfig();
-    Console.WriteLine($"Config saved to {configPath}.");
-}
-else
-{
-    config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath)) ?? new AppConfig();
-
-    if (string.IsNullOrWhiteSpace(config.MachineName) || string.IsNullOrWhiteSpace(config.Mqtt.Host))
-    {
-        if (string.IsNullOrWhiteSpace(config.Mqtt.Host))
+        var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
+        AppConfig config;
+        if (!File.Exists(configPath))
         {
-            Console.Write("Enter MQTT host: ");
-            config.Mqtt.Host = Console.ReadLine() ?? "localhost";
+            config = new AppConfig();
+            PromptForConfig(config);
+            SaveConfig(config, configPath);
+            MessageBox.Show($"Config saved to {configPath}.");
+        }
+        else
+        {
+            config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath)) ?? new AppConfig();
 
-            Console.Write("Enter MQTT port (default 1883): ");
-            var portInput = Console.ReadLine();
-            if (int.TryParse(portInput, out var port))
+            if (string.IsNullOrWhiteSpace(config.MachineName) || string.IsNullOrWhiteSpace(config.Mqtt.Host))
             {
-                config.Mqtt.Port = port;
+                if (string.IsNullOrWhiteSpace(config.Mqtt.Host))
+                {
+                    PromptForConfig(config);
+                }
+
+                if (string.IsNullOrWhiteSpace(config.MachineName))
+                {
+                    config.MachineName = Prompt("Machine name:", config.MachineName);
+                }
+
+                SaveConfig(config, configPath);
+            }
+        }
+
+        EnsureStartup();
+
+        var mqttFactory = new MqttFactory();
+        var mqttClient = mqttFactory.CreateMqttClient();
+
+        var options = new MqttClientOptionsBuilder()
+            .WithTcpServer(config.Mqtt.Host, config.Mqtt.Port)
+            .WithCredentials(config.Mqtt.Username, config.Mqtt.Password)
+            .Build();
+
+        await mqttClient.ConnectAsync(options);
+
+        var baseTopic = $"pc/{config.MachineName}/volume";
+        var stateTopic = $"{baseTopic}/state";
+        var commandTopic = $"{baseTopic}/set";
+
+        var discoveryTopic = $"homeassistant/number/{config.MachineName}_volume/config";
+        var discoveryPayload = JsonSerializer.Serialize(new
+        {
+            name = $"{config.MachineName} Volume",
+            command_topic = commandTopic,
+            state_topic = stateTopic,
+            min = 0,
+            max = 100,
+            unique_id = $"{config.MachineName}_volume",
+            device = new { identifiers = new[] { config.MachineName }, name = config.MachineName }
+        });
+        var discoveryMessage = new MqttApplicationMessageBuilder()
+            .WithTopic(discoveryTopic)
+            .WithPayload(discoveryPayload)
+            .WithRetainFlag(true)
+            .Build();
+        await mqttClient.PublishAsync(discoveryMessage);
+
+        using var volume = new VolumeService();
+
+        async Task PublishState(float v)
+        {
+            var msg = new MqttApplicationMessageBuilder()
+                .WithTopic(stateTopic)
+                .WithPayload(((int)v).ToString())
+                .WithRetainFlag(true)
+                .Build();
+            await mqttClient.PublishAsync(msg);
+        }
+
+        mqttClient.ApplicationMessageReceivedAsync += e =>
+        {
+            if (e.ApplicationMessage.Topic == commandTopic)
+            {
+                var payload = Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
+                if (float.TryParse(payload, out var vol))
+                {
+                    volume.SetVolume(vol);
+                }
             }
 
-            Console.Write("Enter MQTT username: ");
-            config.Mqtt.Username = Console.ReadLine() ?? string.Empty;
+            return Task.CompletedTask;
+        };
 
-            Console.Write("Enter MQTT password: ");
-            config.Mqtt.Password = ReadPassword();
-        }
+        await mqttClient.SubscribeAsync(commandTopic);
 
-        if (string.IsNullOrWhiteSpace(config.MachineName))
+        volume.VolumeChanged += async (_, v) => await PublishState(v);
+        await PublishState(volume.GetVolume());
+
+        using var icon = new NotifyIcon
         {
-            Console.Write("Enter machine name: ");
-            config.MachineName = Console.ReadLine() ?? string.Empty;
-        }
+            Icon = System.Drawing.SystemIcons.Application,
+            Visible = true,
+            Text = "PC Volume MQTT",
+            ContextMenuStrip = new ContextMenuStrip()
+        };
+        icon.ContextMenuStrip.Items.Add("Exit", null, (_, _) => Application.Exit());
 
-        SaveConfig();
+        Application.ApplicationExit += (_, _) =>
+        {
+            icon.Visible = false;
+            mqttClient.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        };
+
+        Application.Run();
     }
-}
 
-var mqttFactory = new MqttFactory();
-var mqttClient = mqttFactory.CreateMqttClient();
-
-var options = new MqttClientOptionsBuilder()
-    .WithTcpServer(config.Mqtt.Host, config.Mqtt.Port)
-    .WithCredentials(config.Mqtt.Username, config.Mqtt.Password)
-    .Build();
-
-await mqttClient.ConnectAsync(options);
-
-var baseTopic = $"pc/{config.MachineName}/volume";
-var stateTopic = $"{baseTopic}/state";
-var commandTopic = $"{baseTopic}/set";
-
-var discoveryTopic = $"homeassistant/number/{config.MachineName}_volume/config";
-var discoveryPayload = JsonSerializer.Serialize(new
-{
-    name = $"{config.MachineName} Volume",
-    command_topic = commandTopic,
-    state_topic = stateTopic,
-    min = 0,
-    max = 100,
-    unique_id = $"{config.MachineName}_volume",
-    device = new { identifiers = new[] { config.MachineName }, name = config.MachineName }
-});
-var discoveryMessage = new MqttApplicationMessageBuilder()
-    .WithTopic(discoveryTopic)
-    .WithPayload(discoveryPayload)
-    .WithRetainFlag(true)
-    .Build();
-await mqttClient.PublishAsync(discoveryMessage);
-
-using var volume = new VolumeService();
-
-async Task PublishState(float v)
-{
-    var msg = new MqttApplicationMessageBuilder()
-        .WithTopic(stateTopic)
-        .WithPayload(((int)v).ToString())
-        .WithRetainFlag(true)
-        .Build();
-    await mqttClient.PublishAsync(msg);
-}
-
-mqttClient.ApplicationMessageReceivedAsync += e =>
-{
-    if (e.ApplicationMessage.Topic == commandTopic)
+    private static void PromptForConfig(AppConfig config)
     {
-        var payload = Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
-        if (float.TryParse(payload, out var vol))
-        {
-            volume.SetVolume(vol);
-        }
+        config.Mqtt.Host = Prompt("MQTT host:", config.Mqtt.Host);
+        config.Mqtt.Port = int.TryParse(Prompt("MQTT port:", config.Mqtt.Port.ToString()), out var port)
+            ? port
+            : config.Mqtt.Port;
+        config.Mqtt.Username = Prompt("MQTT username:", config.Mqtt.Username);
+        config.Mqtt.Password = Prompt("MQTT password:", config.Mqtt.Password, true);
+        config.MachineName = Prompt("Machine name:", config.MachineName);
     }
 
-    return Task.CompletedTask;
-};
-
-await mqttClient.SubscribeAsync(commandTopic);
-
-volume.VolumeChanged += async (_, v) => await PublishState(v);
-await PublishState(volume.GetVolume());
-
-Console.WriteLine("PC volume control via MQTT running. Press Ctrl+C to exit.");
-await Task.Delay(Timeout.Infinite);
-
-void SaveConfig()
-{
-    var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-    File.WriteAllText(configPath, json);
-}
-
-string ReadPassword()
-{
-    var password = new StringBuilder();
-    ConsoleKeyInfo key;
-    while ((key = Console.ReadKey(true)).Key != ConsoleKey.Enter)
+    private static void SaveConfig(AppConfig config, string path)
     {
-        if (key.Key == ConsoleKey.Backspace && password.Length > 0)
-        {
-            password.Length--;
-            Console.Write("\b \b");
-        }
-        else if (!char.IsControl(key.KeyChar))
-        {
-            password.Append(key.KeyChar);
-            Console.Write("*");
-        }
+        var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
     }
-    Console.WriteLine();
-    return password.ToString();
+
+    private static string Prompt(string text, string defaultValue = "", bool isPassword = false)
+    {
+        using var form = new Form
+        {
+            Width = 400,
+            Height = 150,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            Text = "PC Volume MQTT",
+            StartPosition = FormStartPosition.CenterScreen
+        };
+
+        using var label = new Label { Left = 10, Top = 10, Text = text, AutoSize = true };
+        using var textBox = new TextBox { Left = 10, Top = 30, Width = 360, Text = defaultValue, UseSystemPasswordChar = isPassword };
+        using var buttonOk = new Button { Text = "OK", Left = 300, Width = 70, Top = 70, DialogResult = DialogResult.OK };
+
+        form.Controls.Add(label);
+        form.Controls.Add(textBox);
+        form.Controls.Add(buttonOk);
+        form.AcceptButton = buttonOk;
+
+        return form.ShowDialog() == DialogResult.OK ? textBox.Text : defaultValue;
+    }
+
+    private static void EnsureStartup()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+        key?.SetValue("PCVolumeMqtt", Application.ExecutablePath);
+    }
 }
+
