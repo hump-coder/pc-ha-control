@@ -9,19 +9,62 @@ AppConfig config;
 if (!File.Exists(configPath))
 {
     config = new AppConfig();
-    var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-    File.WriteAllText(configPath, json);
-    Console.WriteLine($"Config file created at {configPath}. Please fill it and run again.");
-    return;
-}
-config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath)) ?? new AppConfig();
 
-if (string.IsNullOrWhiteSpace(config.MachineName))
-{
+    Console.Write("Enter MQTT host: ");
+    config.Mqtt.Host = Console.ReadLine() ?? "localhost";
+
+    Console.Write("Enter MQTT port (default 1883): ");
+    var portInput = Console.ReadLine();
+    if (int.TryParse(portInput, out var port))
+    {
+        config.Mqtt.Port = port;
+    }
+
+    Console.Write("Enter MQTT username: ");
+    config.Mqtt.Username = Console.ReadLine() ?? string.Empty;
+
+    Console.Write("Enter MQTT password: ");
+    config.Mqtt.Password = ReadPassword();
+
     Console.Write("Enter machine name: ");
     config.MachineName = Console.ReadLine() ?? string.Empty;
-    var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-    File.WriteAllText(configPath, json);
+
+    SaveConfig();
+    Console.WriteLine($"Config saved to {configPath}.");
+}
+else
+{
+    config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath)) ?? new AppConfig();
+
+    if (string.IsNullOrWhiteSpace(config.MachineName) || string.IsNullOrWhiteSpace(config.Mqtt.Host))
+    {
+        if (string.IsNullOrWhiteSpace(config.Mqtt.Host))
+        {
+            Console.Write("Enter MQTT host: ");
+            config.Mqtt.Host = Console.ReadLine() ?? "localhost";
+
+            Console.Write("Enter MQTT port (default 1883): ");
+            var portInput = Console.ReadLine();
+            if (int.TryParse(portInput, out var port))
+            {
+                config.Mqtt.Port = port;
+            }
+
+            Console.Write("Enter MQTT username: ");
+            config.Mqtt.Username = Console.ReadLine() ?? string.Empty;
+
+            Console.Write("Enter MQTT password: ");
+            config.Mqtt.Password = ReadPassword();
+        }
+
+        if (string.IsNullOrWhiteSpace(config.MachineName))
+        {
+            Console.Write("Enter machine name: ");
+            config.MachineName = Console.ReadLine() ?? string.Empty;
+        }
+
+        SaveConfig();
+    }
 }
 
 var mqttFactory = new MqttFactory();
@@ -89,3 +132,30 @@ await PublishState(volume.GetVolume());
 
 Console.WriteLine("PC volume control via MQTT running. Press Ctrl+C to exit.");
 await Task.Delay(Timeout.Infinite);
+
+void SaveConfig()
+{
+    var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+    File.WriteAllText(configPath, json);
+}
+
+string ReadPassword()
+{
+    var password = new StringBuilder();
+    ConsoleKeyInfo key;
+    while ((key = Console.ReadKey(true)).Key != ConsoleKey.Enter)
+    {
+        if (key.Key == ConsoleKey.Backspace && password.Length > 0)
+        {
+            password.Length--;
+            Console.Write("\b \b");
+        }
+        else if (!char.IsControl(key.KeyChar))
+        {
+            password.Append(key.KeyChar);
+            Console.Write("*");
+        }
+    }
+    Console.WriteLine();
+    return password.ToString();
+}
