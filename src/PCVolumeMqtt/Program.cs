@@ -5,6 +5,7 @@ using MQTTnet;
 using MQTTnet.Client;
 using Microsoft.Win32;
 using PCVolumeMqtt;
+using System.Linq;
 
 internal static class Program
 {
@@ -54,7 +55,8 @@ internal static class Program
 
         await mqttClient.ConnectAsync(options);
 
-        var baseTopic = $"pc/{config.MachineName}/volume";
+        var slug = Slugify(config.MachineName);
+        var baseTopic = $"pc/{slug}/volume";
 
         using var volume = new VolumeService();
 
@@ -72,7 +74,8 @@ internal static class Program
             await mqttClient.PublishAsync(msg);
         }
 
-        var discoveryTopic = $"homeassistant/number/{config.MachineName}/config";
+        var objectId = $"{slug}_volume";
+        var discoveryTopic = $"homeassistant/number/{objectId}/config";
         var discoveryPayload = JsonSerializer.Serialize(new
         {
             name = $"{device.Name} Volume",
@@ -80,8 +83,8 @@ internal static class Program
             state_topic = stateTopic,
             min = 0,
             max = 100,
-            unique_id = $"{config.MachineName}_volume",
-            device = new { identifiers = new[] { config.MachineName }, name = config.MachineName }
+            unique_id = objectId,
+            device = new { identifiers = new[] { slug }, name = config.MachineName }
         });
         var discoveryMessage = new MqttApplicationMessageBuilder()
             .WithTopic(discoveryTopic)
@@ -174,6 +177,11 @@ internal static class Program
         form.AcceptButton = buttonOk;
 
         return form.ShowDialog() == DialogResult.OK ? textBox.Text : defaultValue;
+    }
+
+    private static string Slugify(string input)
+    {
+        return string.Concat(input.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '_'));
     }
 
     private static void EnsureStartup()
