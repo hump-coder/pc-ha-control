@@ -4,14 +4,16 @@ Utility to expose Windows PC sound device volumes to Home Assistant via MQTT.
 
 ## Setup
 
-1. Publish a single-file executable for Windows (requires .NET SDK 8.0 or later):
+1. Publish the application for Windows (requires .NET SDK 8.0 or later):
 
    ```sh
-   dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -p:IncludeNativeLibrariesForSelfExtract=true
+   dotnet publish -c Release -r win-x64
    ```
 
-   The resulting `PCVolumeMqtt.exe` will be in
-   `src/PCVolumeMqtt/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/`.
+   The publish output will be in
+   `src/PCVolumeMqtt/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/`
+   with `PCVolumeMqtt.exe` at the root and a `content` subfolder containing
+   all other files.
 
 2. Copy the executable to the target PC and run it. On first launch it displays
    dialogs to collect your MQTT host, port, username, password, and a machine
