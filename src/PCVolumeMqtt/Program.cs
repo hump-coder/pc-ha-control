@@ -6,6 +6,7 @@ using MQTTnet.Client;
 using Microsoft.Win32;
 using PCVolumeMqtt;
 using System.Linq;
+using System.Collections.Generic;
 
 internal static class Program
 {
@@ -15,31 +16,37 @@ internal static class Program
         ApplicationConfiguration.Initialize();
 
         var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
-        AppConfig config;
-        if (!File.Exists(configPath))
+        var preConfigPath = Path.Combine(AppContext.BaseDirectory, "pre-config.txt");
+        var configExists = File.Exists(configPath);
+        var config = configExists
+            ? JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath)) ?? new AppConfig()
+            : new AppConfig();
+
+        if (!configExists && File.Exists(preConfigPath))
         {
-            config = new AppConfig();
+            var pre = LoadPreConfig(preConfigPath);
+            if (pre.TryGetValue("mqtt_host", out var host))
+                config.Mqtt.Host = host;
+            if (pre.TryGetValue("mqtt_username", out var user))
+                config.Mqtt.Username = user;
+            if (pre.TryGetValue("mqtt_password", out var pass))
+                config.Mqtt.Password = pass;
+            if (pre.TryGetValue("machine_name", out var name))
+                config.MachineName = name;
+        }
+
+        var missing = string.IsNullOrWhiteSpace(config.Mqtt.Host)
+                      || string.IsNullOrWhiteSpace(config.Mqtt.Username)
+                      || string.IsNullOrWhiteSpace(config.Mqtt.Password)
+                      || string.IsNullOrWhiteSpace(config.MachineName);
+
+        if (missing)
+        {
             PromptForConfig(config);
             SaveConfig(config, configPath);
-            MessageBox.Show($"Config saved to {configPath}.");
-        }
-        else
-        {
-            config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath)) ?? new AppConfig();
-
-            if (string.IsNullOrWhiteSpace(config.MachineName) || string.IsNullOrWhiteSpace(config.Mqtt.Host))
+            if (!configExists)
             {
-                if (string.IsNullOrWhiteSpace(config.Mqtt.Host))
-                {
-                    PromptForConfig(config);
-                }
-
-                if (string.IsNullOrWhiteSpace(config.MachineName))
-                {
-                    config.MachineName = Prompt("Machine name:", config.MachineName);
-                }
-
-                SaveConfig(config, configPath);
+                MessageBox.Show($"Config saved to {configPath}.");
             }
         }
 
@@ -141,13 +148,25 @@ internal static class Program
 
     private static void PromptForConfig(AppConfig config)
     {
-        config.Mqtt.Host = Prompt("MQTT host:", config.Mqtt.Host);
-        config.Mqtt.Port = int.TryParse(Prompt("MQTT port:", config.Mqtt.Port.ToString()), out var port)
-            ? port
-            : config.Mqtt.Port;
-        config.Mqtt.Username = Prompt("MQTT username:", config.Mqtt.Username);
-        config.Mqtt.Password = Prompt("MQTT password:", config.Mqtt.Password, true);
-        config.MachineName = Prompt("Machine name:", config.MachineName);
+        if (string.IsNullOrWhiteSpace(config.Mqtt.Host))
+        {
+            config.Mqtt.Host = Prompt("MQTT host:", config.Mqtt.Host);
+        }
+
+        if (string.IsNullOrWhiteSpace(config.Mqtt.Username))
+        {
+            config.Mqtt.Username = Prompt("MQTT username:", config.Mqtt.Username);
+        }
+
+        if (string.IsNullOrWhiteSpace(config.Mqtt.Password))
+        {
+            config.Mqtt.Password = Prompt("MQTT password:", config.Mqtt.Password, true);
+        }
+
+        if (string.IsNullOrWhiteSpace(config.MachineName))
+        {
+            config.MachineName = Prompt("Machine name:", config.MachineName);
+        }
     }
 
     private static void SaveConfig(AppConfig config, string path)
@@ -188,6 +207,47 @@ internal static class Program
     {
         using var key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
         key?.SetValue("PCVolumeMqtt", Application.ExecutablePath);
+    }
+
+    private static Dictionary<string, string> LoadPreConfig(string path)
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in File.ReadLines(path))
+        {
+            var line = StripComments(raw).Trim();
+            if (string.IsNullOrEmpty(line))
+                continue;
+            var parts = line.Split('=', 2);
+            if (parts.Length != 2)
+                continue;
+            var key = parts[0].Trim();
+            var value = parts[1].Trim();
+            if (value.StartsWith("\"") && value.EndsWith("\""))
+            {
+                value = value.Substring(1, value.Length - 2);
+            }
+            dict[key] = value;
+        }
+
+        return dict;
+    }
+
+    private static string StripComments(string line)
+    {
+        var inQuotes = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            var c = line[i];
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == '#' && !inQuotes)
+            {
+                return line[..i];
+            }
+        }
+        return line;
     }
 
 }

@@ -1,0 +1,7 @@
+# Example pre-configuration for PCVolumeMqtt
+# Copy this file to pre-config.txt and fill in the values.
+# Lines beginning with # are comments. A # denotes a comment anywhere unless inside quotes.
+# mqtt_host=your.mqtt.host
+# mqtt_username=your_username
+# mqtt_password="your#password"
+# machine_name=My-PC
