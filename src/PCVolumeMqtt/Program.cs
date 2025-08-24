@@ -58,72 +58,59 @@ internal static class Program
 
         using var volume = new VolumeService();
 
-        var commandTopics = new Dictionary<string, string>(); // topic -> deviceId
-        var stateTopics = new Dictionary<string, string>();   // deviceId -> topic
+        var device = volume.GetDevice();
+        var slug = Slugify(device.Name);
+        var deviceBase = $"{baseTopic}/{slug}";
+        var stateTopic = $"{deviceBase}/state";
+        var commandTopic = $"{deviceBase}/set";
 
-        async Task PublishState(string deviceId, float v)
+        async Task PublishState(float v)
         {
-            if (!stateTopics.TryGetValue(deviceId, out var topic))
-            {
-                return;
-            }
-
             var msg = new MqttApplicationMessageBuilder()
-                .WithTopic(topic)
+                .WithTopic(stateTopic)
                 .WithPayload(((int)v).ToString())
                 .WithRetainFlag(true)
                 .Build();
             await mqttClient.PublishAsync(msg);
         }
 
-        foreach (var device in volume.GetDevices())
+        var discoveryTopic = $"homeassistant/number/{config.MachineName}_{slug}/config";
+        var discoveryPayload = JsonSerializer.Serialize(new
         {
-            var slug = Slugify(device.Name);
-            var deviceBase = $"{baseTopic}/{slug}";
-            var stateTopic = $"{deviceBase}/state";
-            var commandTopic = $"{deviceBase}/set";
+            name = $"{device.Name} Volume",
+            command_topic = commandTopic,
+            state_topic = stateTopic,
+            min = 0,
+            max = 100,
+            unique_id = $"{config.MachineName}_{slug}_volume",
+            device = new { identifiers = new[] { config.MachineName }, name = config.MachineName }
+        });
+        var discoveryMessage = new MqttApplicationMessageBuilder()
+            .WithTopic(discoveryTopic)
+            .WithPayload(discoveryPayload)
+            .WithRetainFlag(true)
+            .Build();
+        await mqttClient.PublishAsync(discoveryMessage);
 
-            stateTopics[device.Id] = stateTopic;
-            commandTopics[commandTopic] = device.Id;
+        await mqttClient.SubscribeAsync(commandTopic);
 
-            var discoveryTopic = $"homeassistant/number/{config.MachineName}_{slug}/config";
-            var discoveryPayload = JsonSerializer.Serialize(new
-            {
-                name = $"{device.Name} Volume",
-                command_topic = commandTopic,
-                state_topic = stateTopic,
-                min = 0,
-                max = 100,
-                unique_id = $"{config.MachineName}_{slug}_volume",
-                device = new { identifiers = new[] { config.MachineName }, name = config.MachineName }
-            });
-            var discoveryMessage = new MqttApplicationMessageBuilder()
-                .WithTopic(discoveryTopic)
-                .WithPayload(discoveryPayload)
-                .WithRetainFlag(true)
-                .Build();
-            await mqttClient.PublishAsync(discoveryMessage);
-
-            await mqttClient.SubscribeAsync(commandTopic);
-
-            await PublishState(device.Id, volume.GetVolume(device.Id));
-        }
+        await PublishState(volume.GetVolume());
 
         mqttClient.ApplicationMessageReceivedAsync += e =>
         {
-            if (commandTopics.TryGetValue(e.ApplicationMessage.Topic, out var id))
+            if (e.ApplicationMessage.Topic == commandTopic)
             {
                 var payload = Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
                 if (float.TryParse(payload, out var vol))
                 {
-                    volume.SetVolume(id, vol);
+                    volume.SetVolume(vol);
                 }
             }
 
             return Task.CompletedTask;
         };
 
-        volume.VolumeChanged += async (_, args) => await PublishState(args.DeviceId, args.Volume);
+        volume.VolumeChanged += async (_, args) => await PublishState(args.Volume);
 
         using var icon = new NotifyIcon
         {
