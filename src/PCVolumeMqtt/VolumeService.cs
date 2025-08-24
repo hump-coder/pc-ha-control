@@ -1,4 +1,5 @@
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 
 namespace PCVolumeMqtt;
 
@@ -9,18 +10,21 @@ public record VolumeChangedEventArgs(float Volume);
 public class VolumeService : IDisposable
 {
     private readonly MMDeviceEnumerator _enumerator;
-    private readonly MMDevice _device;
+    private MMDevice _device;
+    private readonly AudioEndpointVolumeNotificationDelegate _callback;
+    private readonly IMMNotificationClient _notificationClient;
 
     public event EventHandler<VolumeChangedEventArgs>? VolumeChanged;
 
     public VolumeService()
     {
         _enumerator = new MMDeviceEnumerator();
-        _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-        _device.AudioEndpointVolume.OnVolumeNotification += data =>
-        {
+        _callback = data =>
             VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(data.MasterVolume * 100f));
-        };
+        _notificationClient = new NotificationClient(RefreshDevice);
+        _enumerator.RegisterEndpointNotificationCallback(_notificationClient);
+        _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        _device.AudioEndpointVolume.OnVolumeNotification += _callback;
     }
 
     public DeviceInfo GetDevice() => new(_device.ID, _device.FriendlyName);
@@ -35,8 +39,49 @@ public class VolumeService : IDisposable
 
     public void Dispose()
     {
+        _device.AudioEndpointVolume.OnVolumeNotification -= _callback;
         _device.Dispose();
+        _enumerator.UnregisterEndpointNotificationCallback(_notificationClient);
         _enumerator.Dispose();
+    }
+
+    private void RefreshDevice()
+    {
+        var newDevice = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        if (newDevice.ID == _device.ID)
+        {
+            newDevice.Dispose();
+            return;
+        }
+
+        _device.AudioEndpointVolume.OnVolumeNotification -= _callback;
+        _device.Dispose();
+        _device = newDevice;
+        _device.AudioEndpointVolume.OnVolumeNotification += _callback;
+        VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(GetVolume()));
+    }
+
+    private class NotificationClient : IMMNotificationClient
+    {
+        private readonly Action _onDefaultDeviceChanged;
+
+        public NotificationClient(Action onDefaultDeviceChanged)
+        {
+            _onDefaultDeviceChanged = onDefaultDeviceChanged;
+        }
+
+        public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
+        {
+            if (flow == DataFlow.Render && role == Role.Multimedia)
+            {
+                _onDefaultDeviceChanged();
+            }
+        }
+
+        public void OnDeviceAdded(string pwstrDeviceId) { }
+        public void OnDeviceRemoved(string deviceId) { }
+        public void OnDeviceStateChanged(string deviceId, DeviceState newState) { }
+        public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key) { }
     }
 }
 
