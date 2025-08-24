@@ -1,0 +1,7 @@
+# Pre-configuration for PCVolumeMqtt
+# Uncomment and set the values below to preconfigure the app before first run.
+
+# mqtt_host=
+# mqtt_username=
+# mqtt_password=
+# machine_name=
