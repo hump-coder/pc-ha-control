@@ -59,10 +59,8 @@ internal static class Program
         using var volume = new VolumeService();
 
         var device = volume.GetDevice();
-        var slug = Slugify(device.Name);
-        var deviceBase = $"{baseTopic}/{slug}";
-        var stateTopic = $"{deviceBase}/state";
-        var commandTopic = $"{deviceBase}/set";
+        var stateTopic = $"{baseTopic}/state";
+        var commandTopic = $"{baseTopic}/set";
 
         async Task PublishState(float v)
         {
@@ -74,7 +72,7 @@ internal static class Program
             await mqttClient.PublishAsync(msg);
         }
 
-        var discoveryTopic = $"homeassistant/number/{config.MachineName}_{slug}/config";
+        var discoveryTopic = $"homeassistant/number/{config.MachineName}/config";
         var discoveryPayload = JsonSerializer.Serialize(new
         {
             name = $"{device.Name} Volume",
@@ -82,7 +80,7 @@ internal static class Program
             state_topic = stateTopic,
             min = 0,
             max = 100,
-            unique_id = $"{config.MachineName}_{slug}_volume",
+            unique_id = $"{config.MachineName}_volume",
             device = new { identifiers = new[] { config.MachineName }, name = config.MachineName }
         });
         var discoveryMessage = new MqttApplicationMessageBuilder()
@@ -184,22 +182,5 @@ internal static class Program
         key?.SetValue("PCVolumeMqtt", Application.ExecutablePath);
     }
 
-    private static string Slugify(string value)
-    {
-        var sb = new StringBuilder();
-        foreach (var c in value.ToLowerInvariant())
-        {
-            if (char.IsLetterOrDigit(c))
-            {
-                sb.Append(c);
-            }
-            else if (char.IsWhiteSpace(c) || c == '-' || c == '_')
-            {
-                sb.Append('_');
-            }
-        }
-
-        return sb.ToString();
-    }
 }
 
