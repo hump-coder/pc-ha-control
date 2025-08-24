@@ -68,11 +68,10 @@ internal static class Program
         await mqttClient.ConnectAsync(options);
 
         var slug = Slugify(config.MachineName);
-        var baseTopic = $"pc/{slug}/volume";
+        const string baseTopic = "volume";
 
         using var volume = new VolumeService();
 
-        var device = volume.GetDevice();
         var stateTopic = $"{baseTopic}/state";
         var commandTopic = $"{baseTopic}/set";
 
@@ -86,11 +85,11 @@ internal static class Program
             await mqttClient.PublishAsync(msg);
         }
 
-        var objectId = $"{slug}_volume";
+        const string objectId = "volume";
         var discoveryTopic = $"homeassistant/number/{objectId}/config";
         var discoveryPayload = JsonSerializer.Serialize(new
         {
-            name = $"{device.Name} Volume",
+            name = "volume",
             command_topic = commandTopic,
             state_topic = stateTopic,
             min = 0,
