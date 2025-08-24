@@ -18,11 +18,18 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="pre-config.txt">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <Target Name="ArrangePublishLayout" AfterTargets="Publish">
     <PropertyGroup>
       <ContentDir>$(PublishDir)content/</ContentDir>
-      <ArrangePublishCmd><![CDATA[bash -c 'shopt -s dotglob; for f in "$(PublishDir)"*; do if [ "$$f" != "$(PublishDir)$(AssemblyName).exe" ]; then mv "$$f" "$(ContentDir)"; fi; done']]></ArrangePublishCmd>
-      <ArrangePublishCmdWindows><![CDATA[powershell -NoProfile -Command "Get-ChildItem -Path '$(PublishDir)' -Exclude '$(AssemblyName).exe','content' | Move-Item -Destination '$(ContentDir)'" ]]></ArrangePublishCmdWindows>
+      <ArrangePublishCmd><![CDATA[bash -c 'shopt -s dotglob; for f in "$(PublishDir)"*; do if [ "$$f" != "$(PublishDir)$(AssemblyName).exe" ] && [ "$$f" != "$(PublishDir)pre-config.txt" ]; then mv "$$f" "$(ContentDir)"; fi; done']]></ArrangePublishCmd>
+      <ArrangePublishCmdWindows><![CDATA[powershell -NoProfile -Command "Get-ChildItem -Path '$(PublishDir)' -Exclude '$(AssemblyName).exe','content','pre-config.txt' | Move-Item -Destination '$(ContentDir)'" ]]></ArrangePublishCmdWindows>
     </PropertyGroup>
     <MakeDir Directories="$(ContentDir)" />
     <Exec Command="$(ArrangePublishCmd)" Condition="'$(OS)' != 'Windows_NT'" />
