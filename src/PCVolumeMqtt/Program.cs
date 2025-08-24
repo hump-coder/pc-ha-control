@@ -35,6 +35,11 @@ internal static class Program
                 config.MachineName = name;
         }
 
+        if (configExists && !config.Mqtt.IsPasswordEncrypted && !string.IsNullOrEmpty(config.Mqtt.Password))
+        {
+            SaveConfig(config, configPath);
+        }
+
         var missing = string.IsNullOrWhiteSpace(config.Mqtt.Host)
                       || string.IsNullOrWhiteSpace(config.Mqtt.Username)
                       || string.IsNullOrWhiteSpace(config.Mqtt.Password)
