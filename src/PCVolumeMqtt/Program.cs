@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Windows.Forms;
 using MQTTnet;
 using MQTTnet.Client;
-using Microsoft.Win32;
 using PCVolumeMqtt;
 using System.Linq;
 using System.Collections.Generic;
@@ -12,7 +11,7 @@ using System.Diagnostics;
 internal static class Program
 {
     [STAThread]
-    private static async Task Main()
+    private static async Task Main(string[] args)
     {
         var logPath = Path.Combine(AppContext.BaseDirectory, "trace.log");
         Trace.Listeners.Add(new TextWriterTraceListener(logPath));
@@ -67,7 +66,13 @@ internal static class Program
             }
         }
 
-        EnsureStartup();
+        if (args.Contains("--uninstall"))
+        {
+            Installer.UninstallApplication();
+            return;
+        }
+
+        Installer.RegisterApplication();
         Trace.WriteLine("Starting MQTT connection");
 
         var mqttFactory = new MqttFactory();
@@ -235,12 +240,6 @@ internal static class Program
     private static string Slugify(string input)
     {
         return string.Concat(input.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '_'));
-    }
-
-    private static void EnsureStartup()
-    {
-        using var key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
-        key?.SetValue("PCVolumeMqtt", Application.ExecutablePath);
     }
 
     private static Dictionary<string, string> LoadPreConfig(string path)
