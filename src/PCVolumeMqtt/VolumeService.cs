@@ -23,7 +23,7 @@ public class VolumeService : IDisposable
             VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(data.MasterVolume * 100f));
         _notificationClient = new NotificationClient(RefreshDevice);
         _enumerator.RegisterEndpointNotificationCallback(_notificationClient);
-        _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
         _device.AudioEndpointVolume.OnVolumeNotification += _callback;
     }
 
@@ -47,7 +47,7 @@ public class VolumeService : IDisposable
 
     private void RefreshDevice()
     {
-        var newDevice = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        var newDevice = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
         if (newDevice.ID == _device.ID)
         {
             newDevice.Dispose();
@@ -72,7 +72,8 @@ public class VolumeService : IDisposable
 
         public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
         {
-            if (flow == DataFlow.Render && role == Role.Multimedia)
+            if (flow == DataFlow.Render &&
+                (role == Role.Console || role == Role.Multimedia))
             {
                 _onDefaultDeviceChanged();
             }
