@@ -9,7 +9,7 @@ public record VolumeChangedEventArgs(float Volume);
 
 public class VolumeService : IDisposable
 {
-    private readonly MMDeviceEnumerator _enumerator;
+    private MMDeviceEnumerator _enumerator;
     private MMDevice _device;
     private readonly AudioEndpointVolumeNotificationDelegate _callback;
     private readonly IMMNotificationClient _notificationClient;
@@ -45,21 +45,20 @@ public class VolumeService : IDisposable
         _enumerator.Dispose();
     }
 
-    private void RefreshDevice(string deviceId)
+    private void RefreshDevice(string _)
     {
-        MMDevice newDevice;
-        try
-        {
-            newDevice = _enumerator.GetDevice(deviceId);
-        }
-        catch
-        {
-            newDevice = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
-        }
+        // Re-create the device enumerator and default device just like we do
+        // at startup. This ensures volume notifications continue to flow
+        // after the output device changes.
 
         _device.AudioEndpointVolume.OnVolumeNotification -= _callback;
         _device.Dispose();
-        _device = newDevice;
+        _enumerator.UnregisterEndpointNotificationCallback(_notificationClient);
+        _enumerator.Dispose();
+
+        _enumerator = new MMDeviceEnumerator();
+        _enumerator.RegisterEndpointNotificationCallback(_notificationClient);
+        _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
         _device.AudioEndpointVolume.OnVolumeNotification += _callback;
         VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(GetVolume()));
     }
