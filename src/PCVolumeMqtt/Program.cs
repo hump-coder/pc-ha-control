@@ -7,23 +7,32 @@ using Microsoft.Win32;
 using PCVolumeMqtt;
 using System.Linq;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 internal static class Program
 {
     [STAThread]
     private static async Task Main()
     {
+        var logPath = Path.Combine(AppContext.BaseDirectory, "trace.log");
+        Trace.Listeners.Add(new TextWriterTraceListener(logPath));
+        Trace.AutoFlush = true;
+        Trace.WriteLine("Application starting");
+
         ApplicationConfiguration.Initialize();
 
         var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
         var preConfigPath = Path.Combine(AppContext.BaseDirectory, "pre-config.txt");
+        Trace.WriteLine($"Config path: {configPath}");
         var configExists = File.Exists(configPath);
+        Trace.WriteLine($"Config exists: {configExists}");
         var config = configExists
             ? JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(configPath)) ?? new AppConfig()
             : new AppConfig();
 
         if (!configExists && File.Exists(preConfigPath))
         {
+            Trace.WriteLine("Loading pre-config");
             var pre = LoadPreConfig(preConfigPath);
             if (pre.TryGetValue("mqtt_host", out var host))
                 config.Mqtt.Host = host;
@@ -37,6 +46,7 @@ internal static class Program
 
         if (configExists && !config.Mqtt.IsPasswordEncrypted && !string.IsNullOrEmpty(config.Mqtt.Password))
         {
+            Trace.WriteLine("Encrypting MQTT password and saving config");
             SaveConfig(config, configPath);
         }
 
@@ -47,15 +57,18 @@ internal static class Program
 
         if (missing)
         {
+            Trace.WriteLine("Config missing values; prompting user");
             PromptForConfig(config);
             SaveConfig(config, configPath);
             if (!configExists)
             {
+                Trace.WriteLine("Config saved after prompting");
                 MessageBox.Show($"Config saved to {configPath}.");
             }
         }
 
         EnsureStartup();
+        Trace.WriteLine("Starting MQTT connection");
 
         var mqttFactory = new MqttFactory();
         var mqttClient = mqttFactory.CreateMqttClient();
@@ -65,7 +78,9 @@ internal static class Program
             .WithCredentials(config.Mqtt.Username, config.Mqtt.Password)
             .Build();
 
+        Trace.WriteLine($"Connecting to MQTT at {config.Mqtt.Host}:{config.Mqtt.Port}");
         await mqttClient.ConnectAsync(options);
+        Trace.WriteLine("MQTT connected");
 
         var slug = Slugify(config.MachineName);
         var baseTopic = $"pc/{slug}/volume";
@@ -77,6 +92,7 @@ internal static class Program
 
         async Task PublishState(float v)
         {
+            Trace.WriteLine($"Publishing state {v}");
             var msg = new MqttApplicationMessageBuilder()
                 .WithTopic(stateTopic)
                 .WithPayload(((int)v).ToString())
@@ -105,6 +121,7 @@ internal static class Program
         await mqttClient.PublishAsync(discoveryMessage);
 
         await mqttClient.SubscribeAsync(commandTopic);
+        Trace.WriteLine($"Subscribed to {commandTopic}");
 
         await PublishState(volume.GetVolume());
 
@@ -113,16 +130,26 @@ internal static class Program
             if (e.ApplicationMessage.Topic == commandTopic)
             {
                 var payload = Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
+                Trace.WriteLine($"Received command {payload}");
                 if (float.TryParse(payload, out var vol))
                 {
                     volume.SetVolume(vol);
+                    Trace.WriteLine($"Set volume to {vol}");
+                }
+                else
+                {
+                    Trace.WriteLine($"Invalid volume payload '{payload}'");
                 }
             }
 
             return Task.CompletedTask;
         };
 
-        volume.VolumeChanged += async (_, args) => await PublishState(args.Volume);
+        volume.VolumeChanged += async (_, args) =>
+        {
+            Trace.WriteLine($"Volume changed to {args.Volume}");
+            await PublishState(args.Volume);
+        };
 
         using var icon = new NotifyIcon
         {
@@ -142,11 +169,14 @@ internal static class Program
 
         Application.ApplicationExit += (_, _) =>
         {
+            Trace.WriteLine("Application exiting");
             icon.Visible = false;
             mqttClient.DisconnectAsync().GetAwaiter().GetResult();
             mqttClient.Dispose();
+            Trace.WriteLine("MQTT disconnected");
         };
 
+        Trace.WriteLine("Application running");
         Application.Run();
     }
 

@@ -1,5 +1,6 @@
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
+using System.Diagnostics;
 
 namespace PCVolumeMqtt;
 
@@ -18,13 +19,19 @@ public class VolumeService : IDisposable
 
     public VolumeService()
     {
+        Trace.WriteLine("Initializing VolumeService");
         _enumerator = new MMDeviceEnumerator();
         _callback = data =>
-            VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(data.MasterVolume * 100f));
+        {
+            var vol = data.MasterVolume * 100f;
+            Trace.WriteLine($"OnVolumeNotification {vol}");
+            VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(vol));
+        };
         _notificationClient = new NotificationClient(RefreshDevice);
         _enumerator.RegisterEndpointNotificationCallback(_notificationClient);
         _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
         _device.AudioEndpointVolume.OnVolumeNotification += _callback;
+        Trace.WriteLine($"Initial volume {GetVolume()}");
     }
 
     public DeviceInfo GetDevice() => new(_device.ID, _device.FriendlyName);
@@ -34,11 +41,13 @@ public class VolumeService : IDisposable
     public void SetVolume(float volume)
     {
         var v = Math.Clamp(volume, 0f, 100f) / 100f;
+        Trace.WriteLine($"SetVolume {volume} (clamped {v * 100f})");
         _device.AudioEndpointVolume.MasterVolumeLevelScalar = v;
     }
 
     public void Dispose()
     {
+        Trace.WriteLine("Disposing VolumeService");
         _device.AudioEndpointVolume.OnVolumeNotification -= _callback;
         _device.Dispose();
         _enumerator.UnregisterEndpointNotificationCallback(_notificationClient);
@@ -51,6 +60,7 @@ public class VolumeService : IDisposable
         // at startup. This ensures volume notifications continue to flow
         // after the output device changes.
 
+        Trace.WriteLine("Refreshing audio device");
         _device.AudioEndpointVolume.OnVolumeNotification -= _callback;
         _device.Dispose();
         _enumerator.UnregisterEndpointNotificationCallback(_notificationClient);
@@ -60,7 +70,9 @@ public class VolumeService : IDisposable
         _enumerator.RegisterEndpointNotificationCallback(_notificationClient);
         _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
         _device.AudioEndpointVolume.OnVolumeNotification += _callback;
-        VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(GetVolume()));
+        var volume = GetVolume();
+        Trace.WriteLine($"Refreshed device, volume {volume}");
+        VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(volume));
     }
 
     private class NotificationClient : IMMNotificationClient
