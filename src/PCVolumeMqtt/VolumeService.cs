@@ -1,6 +1,7 @@
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 using System.Diagnostics;
+using System.Threading.Tasks;
 
 namespace PCVolumeMqtt;
 
@@ -27,7 +28,10 @@ public class VolumeService : IDisposable
             Trace.WriteLine($"OnVolumeNotification {vol}");
             VolumeChanged?.Invoke(this, new VolumeChangedEventArgs(vol));
         };
-        _notificationClient = new NotificationClient(RefreshDevice);
+        _notificationClient = new NotificationClient(d =>
+        {
+            Task.Run(() => RefreshDevice(d));
+        });
         _enumerator.RegisterEndpointNotificationCallback(_notificationClient);
         _device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
         _device.AudioEndpointVolume.OnVolumeNotification += _callback;
